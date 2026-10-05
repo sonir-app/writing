@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="660" fill="#ffffff"/>
+
+  <!-- 送出アプリ -->
+  <rect x="40" y="40" width="300" height="84" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text x="190" y="74" text-anchor="middle" font-size="20" font-weight="600" fill="#0f172a">Any app</text>
+  <text x="190" y="102" text-anchor="middle" font-size="15" fill="#475569">Spotify / Apple Music / Qobuz / browser</text>
+
+  <line x1="340" y1="82" x2="438" y2="82" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 仮想デバイス -->
+  <rect x="440" y="40" width="360" height="84" rx="10" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="620" y="74" text-anchor="middle" font-size="20" font-weight="600" fill="#0f172a">Sonir Bench virtual device</text>
+  <text x="620" y="102" text-anchor="middle" font-size="15" fill="#475569">AudioServerPlugIn in coreaudiod · unity volume</text>
+
+  <line x1="620" y1="124" x2="620" y2="198" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="632" y="182" font-size="14" fill="#475569">opened as a normal input device</text>
+
+  <!-- daemon -->
+  <rect x="40" y="200" width="1120" height="250" rx="12" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="60" y="232" font-size="20" font-weight="700" fill="#0f172a">daemon (Rust, headless)</text>
+
+  <g font-size="16" text-anchor="middle">
+    <rect x="60" y="256" width="170" height="110" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="145" y="296" font-weight="600" fill="#0f172a">Entry monitor</text>
+    <text x="145" y="320" font-size="14" fill="#475569">bit depth / on-grid</text>
+    <text x="145" y="340" font-size="14" fill="#475569">per 1 s window</text>
+
+    <rect x="260" y="256" width="170" height="110" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="345" y="296" font-weight="600" fill="#0f172a">Upsample 16×</text>
+    <text x="345" y="320" font-size="14" fill="#475569">to 705.6k / 768k</text>
+    <text x="345" y="340" font-size="14" fill="#475569">f32 → f64</text>
+
+    <rect x="460" y="256" width="220" height="110" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+    <text x="570" y="296" font-weight="700" fill="#0f172a">Your graph</text>
+    <text x="570" y="320" font-size="14" fill="#475569">A / B, gapless switch</text>
+    <text x="570" y="340" font-size="14" fill="#475569">validated before it plays</text>
+
+    <rect x="710" y="256" width="190" height="110" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="805" y="296" font-weight="600" fill="#0f172a">Exit rate</text>
+    <text x="805" y="320" font-size="14" fill="#475569">down or up to</text>
+    <text x="805" y="340" font-size="14" fill="#475569">what the DAC takes</text>
+
+    <rect x="930" y="256" width="210" height="110" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="1035" y="296" font-weight="600" fill="#0f172a">Output stage</text>
+    <text x="1035" y="320" font-size="14" fill="#475569">true-peak metering</text>
+    <text x="1035" y="340" font-size="14" fill="#475569">changes nothing by default</text>
+  </g>
+
+  <g stroke="#334155" stroke-width="2">
+    <line x1="230" y1="311" x2="258" y2="311" marker-end="url(#arrow)"/>
+    <line x1="430" y1="311" x2="458" y2="311" marker-end="url(#arrow)"/>
+    <line x1="680" y1="311" x2="708" y2="311" marker-end="url(#arrow)"/>
+    <line x1="900" y1="311" x2="928" y2="311" marker-end="url(#arrow)"/>
+  </g>
+
+  <text x="60" y="420" font-size="14" fill="#475569">Resampling filters are user-designed and run as partitioned FFT convolution.</text>
+
+  <!-- DAC -->
+  <line x1="1035" y1="450" x2="1035" y2="528" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="930" y="530" width="210" height="84" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text x="1035" y="564" text-anchor="middle" font-size="20" font-weight="600" fill="#0f172a">DAC</text>
+  <text x="1035" y="592" text-anchor="middle" font-size="15" fill="#475569">PCM, or DSD over DoP</text>
+
+  <!-- 出口クロックの帰り道 -->
+  <path d="M 1100 200 L 1100 82 L 802 82" fill="none" stroke="#2563eb" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow-blue)"/>
+  <text x="1086" y="126" text-anchor="end" font-size="14" fill="#2563eb">exit clock: frames the DAC took + host time</text>
+  <text x="1086" y="146" text-anchor="end" font-size="14" fill="#2563eb">(shared memory, no samples)</text>
+
+  <!-- UI -->
+  <rect x="40" y="530" width="300" height="84" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text x="190" y="564" text-anchor="middle" font-size="20" font-weight="600" fill="#0f172a">UI (Tauri + React)</text>
+  <text x="190" y="592" text-anchor="middle" font-size="15" fill="#475569">separate process</text>
+  <line x1="190" y1="528" x2="190" y2="452" stroke="#334155" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="204" y="496" font-size="14" fill="#475569">WebSocket: JSON-RPC + telemetry</text>
+  <text x="204" y="516" font-size="14" fill="#475569">numbers only, never waveforms</text>
+</svg>
