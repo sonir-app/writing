@@ -6,7 +6,9 @@
     "preview": "zenn preview",
     "devto": "node scripts/devto.mjs",
     "hn": "node scripts/hn.mjs",
-    "new": "node scripts/new.mjs"
+    "new": "node scripts/new.mjs",
+    "diagrams": "node scripts/build-diagrams.mjs",
+    "check": "node scripts/build-diagrams.mjs --check"
   },
   "dependencies": {
     "zenn-cli": "^0.5.4"

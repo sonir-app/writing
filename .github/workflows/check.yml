@@ -1,0 +1,17 @@
+# 図が .diagram.mjs から組んだものか、重なりの検査を通っているかを push のたびに見る。
+# 文字の幅はフォントに依るので、ここでは測らない（組むときに手元のフォントで測っている）。
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  diagrams:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/build-diagrams.mjs --check
