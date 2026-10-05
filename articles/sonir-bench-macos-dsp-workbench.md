@@ -3,7 +3,7 @@ title: "macOSの再生音を全部受けて、自分で設計したDSPを通し�
 emoji: "🎛️"
 type: "tech"
 topics: ["rust", "macos", "audio", "dsp", "tauri"]
-published: false
+published: true
 ---
 
 Macで鳴っている音を全部受け取って、自分で設計した処理を通してからDACへ出すデスクトップアプリ、Sonir Benchを作りました。2026年10月にベータ版を公開しています。

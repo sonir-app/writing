@@ -1,6 +1,6 @@
 ---
 title: "I built a Mac app that routes all system audio through a DSP chain you design yourself"
-published: false
+published: true
 tags: [rust, audio, macos, showdev]
 series: "Building Sonir Bench"
 ---
