@@ -7,7 +7,7 @@ series: "Building Sonir Bench"
 
 Sonir Bench is a macOS app that takes every sound your Mac plays, runs it through signal processing you design, and sends the result to your DAC. The beta went live in October 2026.
 
-This post is the overview: what the pieces are and why each one is shaped the way it is. Later posts in this series go deep on single parts: million-tap FIR convolution in real time, writing a virtual audio device, keeping the audio thread allocation-free, and so on.
+This post is the overview: what the pieces are and why each one is shaped the way it is. Later posts in this series will dive deep into individual components: million-tap FIR convolution in real time, writing a virtual audio device, keeping the audio thread allocation-free, and so on.
 
 ## What it is
 
@@ -16,7 +16,7 @@ Bench installs a virtual audio device. Pick "Sonir Bench" as your output and any
 There are three parts:
 
 - **Virtual audio device**: an AudioServerPlugIn written in C, running inside `coreaudiod`
-- **daemon**: a headless Rust process that owns all audio processing and device I/O
+- **Daemon**: a headless Rust process that owns all audio processing and device I/O
 - **UI**: Tauri 2 + React 19, in a separate process
 
 ![Overview](/images/sonir-bench-macos-dsp-workbench/overview.png)
@@ -37,19 +37,19 @@ Bench exists to close that loop: design, look, listen A/B, measure. It doesn't s
 
 ## The entry point: a virtual device of my own
 
-During early development I captured audio through an existing open-source virtual device. It's GPLv3, so I couldn't bundle it with a commercial app, and the shipping build uses my own AudioServerPlugIn instead.
+During early development I captured audio through an existing open-source virtual device. Because it was GPLv3, I couldn't bundle it with a commercial app, and the shipping build uses my own AudioServerPlugIn instead.
 
 Owning the device turned out to matter for more than licensing:
 
 - **I choose the advertised sample rates.** It declares both the 44.1 kHz and 48 kHz families up to 192 kHz, so the sending app can play at its native rate and macOS doesn't slip a sample-rate converter in front of Bench
-- **It has no volume control.** The device is always unity gain, so the system volume slider has no path to the captured signal
+- **It has no volume control.** The device is always at unity gain, so the system volume slider has no path to the captured signal
 - **There's no audio IPC.** The plug-in loops its output back to its input stream, and the daemon opens it like any other input device. One audio path, not two
 
 Building it surfaced a class of bugs I now look for everywhere: the screen looks fine while the sound is quietly altered.
 
-One example: if you open a stream at a rate different from the device's current nominal rate, macOS inserts a resampler and says nothing. No error. The daemon now reads the nominal rate directly before opening, and CI fails any code that opens a stream from a requested rate.
+One example: if you open a stream at a rate different from the device's current nominal rate, macOS inserts a resampler and says nothing. No error. The daemon now reads the nominal rate directly before opening, and CI fails any code that opens a stream at the requested rate.
 
-Another: macOS treats input from a virtual device as microphone input. Without microphone permission, Core Audio doesn't return an error; it returns digital silence. Bench reads the permission state and tells you, instead of playing nothing.
+Another issue: macOS treats input from a virtual device as microphone input. Without microphone permission, Core Audio doesn't return an error; it returns digital silence. Bench reads the permission state and alerts you in the UI, instead of silently staying muted.
 
 ## Measuring whether the input is untouched
 
@@ -57,9 +57,9 @@ Another: macOS treats input from a virtual device as microphone input. Without m
 
 So Bench doesn't claim "bit-perfect". It measures what arrives and reports it, in two ways.
 
-**Input verification.** You play a reference file in your player, and Bench compares what arrives bit for bit. The file has a sync chirp, a ramp that walks through all 65,536 16-bit codes, a pseudo-random sequence, and a closing chirp in a different band. A match proves there's no resampling, no volume change and no mixing in the path. A mismatch is classified: a constant gain points to the app's volume, a stretch points to resampling. Right now this runs from the CLI only; it isn't in the UI yet.
+**Input verification.** You play a reference file in your player, and Bench compares what arrives bit for bit. The file has a sync chirp, a ramp that walks through all 65,536 16-bit codes, a pseudo-random sequence, and a closing chirp in a different band. A match proves there's no resampling, no volume change and no mixing in the path. A mismatch is classified: a constant gain points to app-level volume attenuation, while stretching points to resampling. Right now this runs from the CLI only; it isn't in the UI yet.
 
-**Continuous monitoring.** The input callback inspects each sample as it passes. Integer PCM passed through untouched sits on a fixed grid of values. A volume change makes the grid one step finer; a filter or resampler knocks samples off every grid. Bench tallies this per one-second window.
+**Continuous monitoring.** The input callback inspects each sample as it passes. Integer PCM passed through untouched sits on a fixed grid of values. A volume change makes the grid one step finer; a filter or resampler knocks samples off any valid grid. Bench tallies this per one-second window.
 
 The trap here was silence. Silence sits on every grid, so a naive check reports "bit-perfect" while nothing is playing. Bench gives no verdict until it has enough non-zero samples.
 
@@ -71,7 +71,7 @@ Run a signal through `tanh` and you get harmonics that keep going up. At 48 kHz,
 
 At 705.6 kHz the Nyquist frequency is 352.8 kHz, so a 1 kHz tone can produce up to its 350th harmonic before anything folds back. No oversampling filter is needed, so there's no phase shift or ringing from one either. One line of `tanh` is fine here.
 
-The internal rate is decoupled from the output rate. A DAC that tops out at 192 kHz still gets the benefit: processing happens at 705.6 kHz, and the signal is decimated once at the very end.
+The internal rate is decoupled from the output rate. A DAC that tops out at 192 kHz (or 176.4 kHz) still gets the benefit: processing happens at 768 kHz or 705.6 kHz, and the signal is decimated once at the very end (e.g. 768 kHz down to 192 kHz).
 
 Math is f64 throughout. The rounding floor is about -145 dB for f32 and about -320 dB for f64; the best DACs have a noise floor around -130 dB. I'm not going to market precision beyond that.
 
@@ -95,13 +95,13 @@ A chain you build yourself can hurt your ears or your speakers. It's easy to wri
 
 If any step fails, that chain doesn't play; Bench falls back to passthrough.
 
-Linear chains skip `simulate` because a linear filter can't create frequencies that aren't in its input. How much ultrasonic energy it can produce follows from its magnitude response, computed once from the coefficients. Nonlinear stages do create new frequencies, so you have to run signal through them to know.
+Linear chains skip `simulate` because a linear filter can't create frequencies that aren't in its input. How much ultrasonic energy it can produce follows from its magnitude response, computed once from the coefficients. Nonlinear stages do create new frequencies, so you have to run a signal through them to know.
 
 Chains are JSON, and the spec is public at [sonir.app/spec](https://sonir.app/spec/), so you can have an AI write one. There's deliberately no path for an AI to drive the daemon, though. You hand the JSON to Bench yourself, and if validation fails, you paste the result back to the AI. A conversation can't change what's coming out of your speakers without you in the loop.
 
 ## A/B listening
 
-You keep two chains loaded, A and B, and switch between them. The switch is a 5 to 10 ms crossfade, with no dropout.
+You keep two chains loaded, A and B, and switch between them. The switch is a 5 to 10 ms crossfade, with no dropouts.
 
 Louder sounds better in a comparison, so loudness matching is on by default, and the applied correction in dB is always shown. The correction is computed from the chains' coefficients, not by measuring the music. Measuring the music would give a different correction for every track, and the comparison wouldn't be repeatable.
 
