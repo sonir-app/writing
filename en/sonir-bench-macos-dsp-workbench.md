@@ -1,7 +1,7 @@
 ---
 title: "I built a Mac app that routes all system audio through a DSP chain you design yourself"
 published: false
-tags: [rust, audio, macos, dsp]
+tags: [rust, audio, macos, showdev]
 series: "Building Sonir Bench"
 ---
 
@@ -63,6 +63,9 @@ So Bench doesn't claim "bit-perfect". It measures what arrives and reports it, i
 
 The trap here was silence. Silence sits on every grid, so a naive check reports "bit-perfect" while nothing is playing. Bench gives no verdict until it has enough non-zero samples.
 
+![Entry transparency monitor](/images/sonir-bench-macos-dsp-workbench/en-monitor-verdict.webp)
+*The Monitor page. On the left, the always-on entry check reports a 16-bit source arriving untouched.*
+
 ## Why process at 705.6 / 768 kHz
 
 The high internal rate isn't there for the spec sheet. It's there so that naive nonlinear code just works.
@@ -79,11 +82,17 @@ Math is f64 throughout. The rounding floor is about -145 dB for f32 and about -3
 
 In Bench you also design the sample-rate conversion filters yourself: cutoff, transition width and tap count. Whatever you design runs live.
 
+![Resampling filter designer](/images/sonir-bench-macos-dsp-workbench/en-resample-editor-filter.webp)
+*The resampling filter designer. Each design is verified per input rate: taps, group delay, stopband rejection.*
+
 Direct convolution at 705.6 kHz stereo topped out at 757 taps per core, about 1 ms of impulse response. Not enough for resampling or room correction. Bench uses uniformly partitioned FFT convolution (overlap-save) instead. On an Apple M1, a single 1,048,576-tap convolution takes about 36 to 50 percent of one core.
 
 Partitioned convolution normally adds latency equal to the partition length B. Bench sets its internal block size to exactly B, so each incoming block is convolved and returned as the same block. The convolution adds zero latency, and adding taps doesn't add delay.
 
 The block size does set round-trip latency, though. With B = 4,096 the round trip is 8.33 ms on the 48 kHz family and 9.71 ms on the 44.1 kHz family. The current default is B = 16,384 to lower the CPU cost of the resampling filters, which works out to about 24 to 27 ms. You choose, and the current latency is always on screen.
+
+![Round-trip latency breakdown](/images/sonir-bench-macos-dsp-workbench/en-monitor-latency.webp)
+*Round-trip latency breakdown, here with a partition length of 8,192. The node chain adds 0.00 ms.*
 
 ## Check before it plays
 
@@ -95,6 +104,9 @@ A chain you build yourself can hurt your ears or your speakers. It's easy to wri
 
 If any step fails, that chain doesn't play; Bench falls back to passthrough.
 
+![Graph editor with pre-flight checks](/images/sonir-bench-macos-dsp-workbench/en-graph-editor-check.webp)
+*The graph editor. Before saving, the chain is checked on both the 44.1 kHz and 48 kHz families.*
+
 Linear chains skip `simulate` because a linear filter can't create frequencies that aren't in its input. How much ultrasonic energy it can produce follows from its magnitude response, computed once from the coefficients. Nonlinear stages do create new frequencies, so you have to run a signal through them to know.
 
 Chains are JSON, and the spec is public at [sonir.app/spec](https://sonir.app/spec/), so you can have an AI write one. There's deliberately no path for an AI to drive the daemon, though. You hand the JSON to Bench yourself, and if validation fails, you paste the result back to the AI. A conversation can't change what's coming out of your speakers without you in the loop.
@@ -104,6 +116,9 @@ Chains are JSON, and the spec is public at [sonir.app/spec](https://sonir.app/sp
 You keep two chains loaded, A and B, and switch between them. The switch is a 5 to 10 ms crossfade, with no dropouts.
 
 Louder sounds better in a comparison, so loudness matching is on by default, and the applied correction in dB is always shown. The correction is computed from the chains' coefficients, not by measuring the music. Measuring the music would give a different correction for every track, and the comparison wouldn't be repeatable.
+
+![A/B page](/images/sonir-bench-macos-dsp-workbench/en-ab.webp)
+*The A/B page. The loudness correction currently applied (-0.54 dB) is shown at the top right.*
 
 ## The line I won't cross: captured audio never goes to a file
 
