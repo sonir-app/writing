@@ -37,7 +37,7 @@ Bench exists to close that loop: design, look, listen A/B, measure. It doesn't s
 
 ## The entry point: a virtual device of my own
 
-During early development I captured audio through an existing open-source virtual device. Because it was GPLv3, I couldn't bundle it with a commercial app, and the shipping build uses my own AudioServerPlugIn instead.
+During early development I captured audio through an existing open-source virtual device. Because it is GPLv3, I couldn't bundle it with a commercial app, and the shipping build uses my own AudioServerPlugIn instead.
 
 Owning the device turned out to matter for more than licensing:
 
@@ -47,7 +47,7 @@ Owning the device turned out to matter for more than licensing:
 
 Building it surfaced a class of bugs I now look for everywhere: the screen looks fine while the sound is quietly altered.
 
-One example: if you open a stream at a rate different from the device's current nominal rate, macOS inserts a resampler and says nothing. No error. The daemon now reads the nominal rate directly before opening, and CI fails any code that opens a stream at the requested rate.
+One example: if you open a stream at a rate different from the device's current nominal rate, macOS inserts a resampler and says nothing. No error. The daemon now reads the nominal rate directly before opening, and CI fails any code that opens a stream at a requested rate instead of the device's nominal rate.
 
 Another issue: macOS treats input from a virtual device as microphone input. Without microphone permission, Core Audio doesn't return an error; it returns digital silence. Bench reads the permission state and alerts you in the UI, instead of silently staying muted.
 
@@ -69,9 +69,9 @@ The high internal rate isn't there for the spec sheet. It's there so that naive 
 
 Run a signal through `tanh` and you get harmonics that keep going up. At 48 kHz, anything above 24 kHz folds back into the audible band as aliasing. That's why plug-ins for music production oversample 8 to 32 times internally, and why they need anti-aliasing filters to do it.
 
-At 705.6 kHz the Nyquist frequency is 352.8 kHz, so a 1 kHz tone can produce up to its 350th harmonic before anything folds back. No oversampling filter is needed, so there's no phase shift or ringing from one either. One line of `tanh` is fine here.
+At 705.6 kHz the Nyquist frequency is 352.8 kHz, so a 1 kHz tone can produce up to its 352nd harmonic before anything folds back. No oversampling filter is needed, so there's no phase shift or ringing from one either. One line of `tanh` is fine here.
 
-The internal rate is decoupled from the output rate. A DAC that tops out at 192 kHz (or 176.4 kHz) still gets the benefit: processing happens at 768 kHz or 705.6 kHz, and the signal is decimated once at the very end (e.g. 768 kHz down to 192 kHz).
+The internal rate is decoupled from the output rate. A DAC that tops out at 192 kHz (or 176.4 kHz for the 44.1 kHz family) still gets the benefit: processing happens at 768 kHz or 705.6 kHz respectively, and the signal is decimated once at the very end.
 
 Math is f64 throughout. The rounding floor is about -145 dB for f32 and about -320 dB for f64; the best DACs have a noise floor around -130 dB. I'm not going to market precision beyond that.
 
