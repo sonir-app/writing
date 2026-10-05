@@ -1,0 +1,18 @@
+{
+  "name": "sonir-writing",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "zenn preview",
+    "devto": "node scripts/devto.mjs",
+    "hn": "node scripts/hn.mjs",
+    "new": "node scripts/new.mjs"
+  },
+  "dependencies": {
+    "zenn-cli": "^0.5.4"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "yaml": "^2.6.0"
+  }
+}
