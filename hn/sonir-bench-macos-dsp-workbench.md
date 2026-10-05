@@ -3,7 +3,7 @@ title: "Show HN: Sonir Bench – Run all Mac audio through a DSP chain you desig
 url: "https://sonir.app"
 ---
 
-<!-- 投稿の直後に自分で付ける最初のコメント。dev.to の記事を公開したら、下の URL を差し替える -->
+<!-- 投稿の直後に自分で付ける最初のコメント -->
 
 Hi HN, I'm the developer. Sonir Bench is a macOS app that installs a virtual audio device, captures whatever your Mac plays (Spotify, Apple Music, a browser, anything), runs it through a processing chain you design, and outputs to your DAC.
 
@@ -20,6 +20,6 @@ Some details that might be interesting here:
 
 It's free during the beta, Apple Silicon and macOS 13+ only. Known gaps: no built-in file player yet, and default round-trip latency is about 24 to 27 ms (8 to 10 ms with a smaller block size).
 
-I wrote up the architecture here: <dev.to の記事の URL>
+I wrote up the architecture here: https://dev.to/nadai/i-built-a-mac-app-that-routes-all-system-audio-through-a-dsp-chain-you-design-yourself-18co
 
 Happy to answer questions about Core Audio, the DSP side, or anything else.
