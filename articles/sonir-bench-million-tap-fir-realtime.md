@@ -31,6 +31,41 @@ Bサンプルごとに:
   Σ_k FDL[p−k] · IR_k → 逆FFT → 後半B点が有効な出力
 ```
 
+1ホップ分の処理は、実装ではこうなっています（1チャンネル分。エラー処理は省いています）。
+
+```rust
+// 1. 直近 2B を FFT（forward は入力を壊すのでコピーしてから渡す）
+for (dst, src) in self.time.iter_mut().zip(history) {
+    *dst = T::from_bus(*src);
+}
+self.fft.process_with_scratch(&mut self.time, &mut self.spectrum, &mut self.fft_scratch)?;
+
+// 2. FDL へ格納
+let slot = (ch * partitions + fdl_pos) * bins;
+self.fdl[slot..slot + bins].copy_from_slice(&self.spectrum);
+
+// 3. Σ_k FDL[pos−k] · IR_k
+self.acc.fill(Self::zero());
+for k in 0..partitions {
+    let idx = (fdl_pos + partitions - k) % partitions;
+    let x = (ch * partitions + idx) * bins;
+    let h = k * bins;
+    T::mul_add_mono(&mut self.acc, &self.fdl[x..x + bins], &self.ir_spectra[h..h + bins]);
+}
+
+// 4. 逆 FFT
+self.spectrum.copy_from_slice(&self.acc);
+self.ifft.process_with_scratch(&mut self.spectrum, &mut self.time, &mut self.ifft_scratch)?;
+
+// 5. overlap-save: 有効なのは後半 B 点。realfft は正規化しないので 1/2B
+let norm = 1.0 / (2 * b) as f64;
+for (dst, src) in out.iter_mut().zip(&self.time[b..]) {
+    *dst = src.to_bus() * norm;
+}
+```
+
+FFTは[realfft](https://crates.io/crates/realfft)を使っています。時間がかかるのは3の積和で、パーティションの数Kだけ周波数ビンの数（B + 1）の複素数の積和を繰り返します。`mul_add_mono`はApple SiliconのNEONで書いていて、ステレオのときはIRのスペクトルを1回読んで左右の両方に掛けます。IRのスペクトルは100万タップで約17 MB（f64の複素数）あり、毎ホップ全部を読むので、読む回数を減らすことがそのまま速さに効きます。
+
 1サンプルあたりのコストは、おおよそ`12·N/B`（Nはタップ数）です。タップ数に比例しますが、パーティション長Bで割られます。Apple M1で、705.6 kHz、ステレオ、1コアに対するCPU消費率を測ると次のようになりました。
 
 | タップ数 \ B | 1,024 | 4,096 | 16,384 | 65,536 |
@@ -49,12 +84,46 @@ Bサンプルごとに:
 
 Benchの内部のブロック長は「入口のブロック長 × 補間比」です。入口で48 kHzの256フレームを受けると、16倍して768 kHzの4,096フレームになります。そこでBを内部のブロック長そのものに合わせました。これで、畳み込み処理が追加する遅延はゼロになります。
 
+Bは内部のブロック長から決めます。ブロック長を割り切る最大の2の冪を取ります。
+
+```rust
+pub fn partition_for(block: usize) -> Option<usize> {
+    if block == 0 {
+        return None;
+    }
+    // ブロック長を割り切る最大の 2 の冪（= 最下位の立っているビット）。
+    // ブロックが 2 の冪ならブロック長そのもの
+    let b = block & block.wrapping_neg();
+    (b >= MIN_PARTITION).then_some(b)
+}
+```
+
+`block & block.wrapping_neg()`は、2の補数で最下位の立っているビットだけを残す書き方です。4,096なら4,096、6,144なら2,048になります。
+
 これはテストで固定しています。素通し（単位インパルス）のIRを積んだ経路の遅延が、何も積まない経路と完全に一致することを確かめるテストです。
 
 ```rust
 #[test]
-fn a_default_partition_convolver_adds_no_latency_to_the_chain() { /* ... */ }
+fn a_default_partition_convolver_adds_no_latency_to_the_chain() {
+    let empty = Chain::build(&spec_48(256), Vec::new(), config()).unwrap();
+    let baseline = empty.report().latency_base_frames;
+
+    // 単位インパルス = 素通しの IR。遅延だけを見る
+    let mut ir = vec![0.0; DEFAULT_PARTITION * 128];
+    ir[0] = 1.0;
+    let conv = FirConvolver::new(ir, DEFAULT_PARTITION).unwrap();
+    let chain = Chain::build(&spec_48(256), vec![Box::new(conv)], config()).unwrap();
+
+    assert_eq!(chain.report().node_report.latency_frames(), 0);
+    assert_eq!(
+        chain.report().latency_base_frames,
+        baseline,
+        "畳み込みを積んだら経路遅延が増えた"
+    );
+}
 ```
+
+申告した遅延が0であることと、実際に0であることは別の話です。そのため、同じIRを挟んだ経路に正弦波を流し、出力が申告どおりの遅延で入力と重なることも、別のテストで確かめています。
 
 ただし、遅延が消えたわけではありません。Bを大きくすれば入口のブロックも大きくなるので、往復の遅延はBの分だけ伸びます。Bは「遅延とCPUの交換レート」です。Benchでは、Bを画面で選べるようにしています（4,096〜65,536）。
 
@@ -78,9 +147,37 @@ pub fn transfer_history(&mut self, previous: &Self) -> bool {
     }
     // 入力側の状態はそのまま持ってこられる
     self.history.copy_from_slice(&previous.history);
+    self.stage.copy_from_slice(&previous.stage);
+    self.fill = previous.fill;
+
+    // FDL は「新しいホップから順に」詰め替える。K が違うので位置は付け替える
+    // （精度が違えば FDL の型が違うので、上のガードで既に落ちている）
+    let geo = self.geometry();
+    let (channels, previous_partitions, previous_pos) =
+        (self.channels, previous.partitions, previous.fdl_pos);
+    let (Some(next), Some(old)) = (self.freq.as_mut(), previous.freq.as_ref()) else {
+        return false;
+    };
+    match (next, old) {
+        (FreqDomain::F64(next), FreqDomain::F64(old)) => {
+            next.transfer_fdl(old, geo, channels, previous_partitions, previous_pos);
+        }
+        (FreqDomain::F32(next), FreqDomain::F32(old)) => {
+            next.transfer_fdl(old, geo, channels, previous_partitions, previous_pos);
+        }
+        _ => return false,
+    }
+
+    // 出力側は引き継がない。旧グラフが同じブロックを吐き続けているので、
+    // ここで溜まっている音を持ってくると同じ音が二重に出る
+    self.pending.fill(0.0);
     // ...
 }
 ```
+
+タップ数が変わればパーティションの数Kも変わりますが、FDLは新しいホップから順に詰め替えれば済みます。Kが増えたときは古い側が足りずにゼロのままになり、新しいIRの裾の寄与だけが数ホップ分欠けます。全体がゼロから始まるのとは桁が違うので、これは許しています。
+
+もう1つの注意は出力側です。クロスフェードの間は古い処理も同じブロックを出し続けているので、古い処理の出力の溜まりまで引き継ぐと、同じ音が二重に出ます。引き継ぐのは入力側だけです。
 
 移せるのは、Bとチャンネル数と精度が同じときだけです。逆に言うと、差し替えで変わりうるもの（タップ数など）からBや実装を決めてはいけない、ということになります。この原則を、このあと2回も破ることになります。
 
@@ -113,6 +210,35 @@ DEFAULT_PARTITION.min(block)
 
 Bは内部のブロック長に追従させ、上限を外しました。すると、その隣に潜んでいた別の落とし穴が口を開けました。Bがブロック長より長いと、畳み込みが1回も回らないまま出力バッファを無音で埋めてしまい、何のエラーも出しません。処理経路のどこにも異常が見当たらないまま、無音だけが流れてしまいます。そこで、Bはデバイスが実際に要求してくるブロック長から決定するように改め、要求長に満たず処理できなかったブロックは数えて画面に出すようにしました。
 
+数えるために、畳み込みの`process`は「実際に畳み込みの結果を書いたフレーム数」を返すように変えました。
+
+```rust
+/// 返すのは実際に畳み込みの結果を書いたフレーム数。残りは無音で埋める。
+pub fn process(&mut self, input: &[f64], output: &mut [f64]) -> usize {
+    // ...
+    // 1. 入力を溜める。B たまるたびに1ホップ回す
+    let mut done = 0usize;
+    while done < frames {
+        let take = (b - self.fill).min(frames - done);
+        // ...（stage へ写す）
+        self.fill += take;
+        done += take;
+        if self.fill == b {
+            self.hop();
+            self.fill = 0;
+        }
+    }
+
+    // 2. 出力を吐く。足りなければ無音
+    let emit = frames.min(self.available);
+    // ...（pending から output へ写し、残りは 0.0 で埋める）
+    self.available -= emit;
+    emit
+}
+```
+
+ブロック長とBが一致していれば、1回の呼び出しでちょうど1ホップ回り、受け取った分をそのまま返せます。これが前の節の「遅延ゼロ」の正体です。Bがブロック長より長いと、Bが溜まるまでの呼び出しでは`hop`が回らず、`emit`は0になります。出力の長さ自体は正しいので、返り値を見なければ誰も気づきません。
+
 ## 遅れの本体はフィルタだった
 
 ここからが、この記事でいちばん書きたかったことです。
@@ -127,6 +253,25 @@ Benchの往復レイテンシの目安は20 msです。ブラウザの動画や�
 *48 kHz → 768 kHz。アップサンプラーは544,673タップ（同じ遷移幅を768 kHzで作ると、705.6 kHzより8.8%多くタップが要ります）*
 
 アップサンプラーの354.60 msは、(544,673 − 1) / 2 = 272,336サンプルを768 kHzで割った値です。それ以外は入力5.33 ms、プロセス間通信1.00 ms、DAC 1.00 msで、合わせて7.33 msです。DACへは768 kHzのまま出しているので、レートを下げる段（デシメータ）は無く、0.00 msです。
+
+544,673という半端なタップ数には理由があります。群遅延の272,336サンプルは、補間比16のちょうど17,021倍です。群遅延が補間比の倍数でないと、入口のレートで数えた遅れが半端なサンプル数になり、レイテンシを整数フレームで申告できなくなります。そこで、直線位相のときはタップ数を少しだけ増やして揃えています。
+
+```rust
+/// 直線位相のタップ数を変換比へ揃える。群遅延 `(N−1)/2` が低いほうのレートで
+/// 整数フレームになるまで増やす
+fn align_taps(requested: usize, phase: FirPhase, factor: usize) -> Option<(usize, u32)> {
+    match phase {
+        FirPhase::Linear => {
+            let aligned = ((requested - 1) / 2).div_ceil(factor) * factor;
+            let taps = aligned * 2 + 1;
+            (taps <= MAX_TAPS).then(|| (taps, u32::try_from(aligned).unwrap_or(u32::MAX)))
+        }
+        FirPhase::Minimum => Some((requested, 0)),
+    }
+}
+```
+
+増やした分はゼロで埋めず、窓の中に入れて設計し直します。同じCPUを払うなら、フィルタの性能に使ったほうが得だからです。最小位相のフィルタは群遅延が`(N−1)/2`ではないので、揃える理由そのものがありません。
 
 次に、タップ数を約2倍にしてみます。96 kHz入口で、アップサンプラーを998,545タップ、ノード列を18段にしました。
 
@@ -146,9 +291,25 @@ CPU負荷も同じ扱いにしました。一度は、CPUが足りないと見�
 
 冒頭のステータスバーには、「CPU負荷46% 最大77%」と「CPU 46%」の2つが出ています。
 
-最初は1つでした。コールバックにかかった時間を壁時計（実経過時間）で測り、ブロックの締め切り時間で割った値でした。ところが、同じ設計のままブロック長を変えるだけで、7.0%から22.2%へ跳ねました。音途切れは0のままです。長いコールバックはスケジューラの割り当て時間をまたぐため、待たされた時間が入ってしまっていました。当時はそれを「事前の見積もりが3倍も外れていた」と誤認していました。
+最初は1つでした。コールバックにかかった時間を壁時計（実経過時間）で測り、ブロックの締め切り時間で割った値でした。ところが、同じ設計のまま入口のブロック長を256から512にするだけで、7.0%から22.2%へ跳ねました。音途切れは0のままで、事前の見積もりはほとんど動きません。跳ね方が連続ではなく段差だったので、長いコールバックがスケジューラの割り当て時間をまたぎ、待たされた時間まで数えているのだろうと考えました。
 
-いまは2つに分けています。
+そこで、スレッドが自分で使ったCPU時間を別に測るようにしました。Rustの標準ライブラリにはスレッドのCPU時間を返すAPIが無いので、`clock_gettime`を1行だけ`unsafe`で呼んでいます。
+
+```rust
+/// 呼び出しスレッドがこれまでに使った CPU 時間。
+pub fn thread_cpu_time() -> Option<Duration> {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` は有効な `timespec` で、`clock_gettime` はそこへ書くだけ。
+    let ok = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &raw mut ts) } == 0;
+    // ...
+}
+```
+
+1回の呼び出しは約154 nsで、1ブロックに2回呼びます。44.1 kHzの256フレームの締め切り（5.8 ms）に対して0.005%なので、測ることで測る対象を動かしません。
+
+測り直すと、壁時計とCPU時間は、どのBでも差が0.1ポイント以下で一致しました。跳ねは待たされた時間ではなく、本当に計算量が増えていたのです。疑っていた説明のほうが外れました。見積もりとのずれの原因は、まだ切り分けていません。
+
+それでも、2つに分けたことには意味がありました。「一致している」と言えるようになったのは、別々に測ったからです。1つに畳んだままでは、「たぶん待たされている」から先へ進めませんでした。いまは2つを並べて出しています。
 
 - **CPU負荷**（壁時計 ÷ 締め切り）: 処理が間に合っているかを見る数字です。待たされた時間も含まれます。100%に達すると音が途切れます。
 - **CPU**（スレッドのCPU時間 ÷ 締め切り）: 純粋に演算に使った時間だけです。事前の予報が合っているかを確かめるのに使います。
