@@ -5,8 +5,9 @@
 // - 公開するかは frontmatter の published で決める（Zenn と同じ。既定は下書き）
 // - 本文の /images/... は公開リポジトリの raw URL に書き換える。画像は先に main へ push しておく
 // - 記事の id は en/.devto.json に控える（同じ記事を2本作らないため）。このファイルもコミットする
+// - 初めて公開になったときは、X の投稿文の下書きを Discord に送る（DISCORD_X_WEBHOOK_URL。lib.mjs の sendXDrafts）
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { requireSlug, readDoc, RAW_BASE } from './lib.mjs';
+import { requireSlug, readDoc, RAW_BASE, sendXDrafts } from './lib.mjs';
 
 const slug = requireSlug(process.argv[2]);
 const key = process.env.DEVTO_API_KEY;
@@ -38,6 +39,9 @@ if (article.tags.length > 4) {
 const idsPath = 'en/.devto.json';
 const ids = existsSync(idsPath) ? JSON.parse(readFileSync(idsPath, 'utf8')) : {};
 const id = ids[slug];
+// 公開の API は公開済みの記事しか返さない（下書きは 404）。上げる前に公開済みだったかを見る
+// つながらないときは公開済みと見る（同じ記事の下書きを何度も送らない）
+const wasPublished = id ? await fetch(`https://dev.to/api/articles/${id}`).then((r) => r.ok, () => true) : false;
 
 const res = await fetch(id ? `https://dev.to/api/articles/${id}` : 'https://dev.to/api/articles', {
   method: id ? 'PUT' : 'POST',
@@ -54,3 +58,6 @@ if (!id) {
   writeFileSync(idsPath, JSON.stringify(ids, null, 2) + '\n');
 }
 console.log(`${id ? 'updated' : 'created'} ${article.published ? '(公開)' : '(下書き)'} ${out.url}`);
+if (article.published && !wasPublished) {
+  await sendXDrafts(`dev.to の記事 ${slug} (en)`, [`New post on dev.to: ${meta.title}\n${out.url}`]);
+}

@@ -30,3 +30,40 @@ export function readDoc(path) {
   }
   return { meta: parse(m[1]) ?? {}, body: m[2] };
 }
+
+// ---- X の投稿文の下書き (Discord に送る。X には投稿しない。ワークスペースの docs/5_business/04-writing.md §8)
+
+/** X の重み付きの長さ (twitter-text v3)。URL は23、下の範囲以外の字は2 */
+export function xLength(text) {
+  let n = 0;
+  const rest = text.replace(/https?:\/\/\S+/g, () => {
+    n += 23;
+    return '';
+  });
+  for (const ch of rest.normalize('NFC')) {
+    const o = ch.codePointAt(0);
+    n += o <= 0x10ff || (o >= 0x2000 && o <= 0x200d) || (o >= 0x2010 && o <= 0x201f) || (o >= 0x2032 && o <= 0x2037) ? 1 : 2;
+  }
+  return n;
+}
+
+/**
+ * 見出しのメッセージと、投稿文を1件ずつ別のメッセージで送る (「テキストをコピー」でそのまま X に貼れるように)。
+ * Webhook は DISCORD_X_WEBHOOK_URL (手元は releasectl/.env、Actions は secret)。無ければ標準出力へ出すだけ
+ */
+export async function sendXDrafts(heading, posts) {
+  const hook = process.env.DISCORD_X_WEBHOOK_URL;
+  const post = async (content) => {
+    if (!hook) return console.log(`${content}\n---`);
+    const res = await fetch(hook, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content, flags: 4, allowed_mentions: { parse: [] } }),
+    });
+    if (!res.ok) throw new Error(`Discord が ${res.status} を返した: ${await res.text()}`);
+  };
+  const lengths = posts.map((p) => `${xLength(p)}/280${xLength(p) > 280 ? ' ⚠️ 長すぎる' : ''}`).join(' / ');
+  await post(`**X の下書き** ${heading} ${lengths}`);
+  for (const p of posts) await post(p);
+  console.log(hook ? `X の下書きを Discord に送った (${lengths})` : '(DISCORD_X_WEBHOOK_URL が無いので出しただけ)');
+}

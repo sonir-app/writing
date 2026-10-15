@@ -1,0 +1,23 @@
+# Zenn に初めて公開された記事を知らせる X の投稿文を下書きし、Discord に送る (scripts/x-draft.mjs)。
+# X には投稿しない。Discord に届いた文をコピーして手で貼る。
+name: x-draft
+
+on:
+  push:
+    branches: [main]
+    paths: ['articles/**']
+
+jobs:
+  zenn:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: node scripts/x-draft.mjs "${{ github.event.before }}" "${{ github.sha }}"
+        env:
+          DISCORD_X_WEBHOOK_URL: ${{ secrets.DISCORD_X_WEBHOOK_URL }}
