@@ -158,7 +158,7 @@ Sonir Benchは、ベータの間は無料です。macOS 13以降のApple Silicon
 
 https://sonir.app
 
-次の記事では、1,048,576タップの畳み込みを実時間で回し、遅延を増やさない仕組みを書く予定です。
+続きの記事: [100万タップの直線位相FIRを実時間で回した。運ぶ遅れは7 ms、フィルタは650 ms](https://zenn.dev/nadai/articles/sonir-bench-million-tap-fir-realtime)
 
 ---
 
