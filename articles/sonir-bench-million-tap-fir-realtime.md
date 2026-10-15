@@ -3,7 +3,7 @@ title: "100万タップの直線位相FIRを実時間で回した。運ぶ遅れ
 emoji: "🌊"
 type: "tech"
 topics: ["rust", "audio", "dsp", "macos", "fft"]
-published: false
+published: true
 ---
 
 Macの再生音を受けて、自分で設計した処理を通してからDACへ出すアプリ、Sonir Benchを作っています。[前の記事](https://zenn.dev/nadai/articles/sonir-bench-macos-dsp-workbench)では全体の構成を書きました。この記事では、その中の長いFIRの畳み込みを掘り下げます。
