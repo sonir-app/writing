@@ -157,7 +157,7 @@ Sonir Bench is free during the beta. It runs on Apple Silicon Macs with macOS 13
 
 https://sonir.app
 
-Next in the series: running a 1,048,576-tap convolution in real time without adding latency.
+Next in the series: [A million-tap linear-phase FIR in real time: 7 ms of plumbing, 650 ms of filter](https://dev.to/nadai/a-million-tap-linear-phase-fir-in-real-time-7-ms-of-plumbing-650-ms-of-filter-17fa)
 
 ---
 
